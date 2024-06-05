@@ -80,7 +80,7 @@ func newRequest(url, method string) *Request {
 	return &Request{
 		id:         uuid.NewString(),
 		url:        url,
-		method:     http.MethodGet,
+		method:     method,
 		body:       nil,
 		timeout:    100,
 		iterations: 10,
