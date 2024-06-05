@@ -153,12 +153,13 @@ func (r *Request) Run(args ...any) Result {
 	if r.testFunc != nil {
 		result = r.testFunc(response, args...)
 		if result.Type == Repeat {
-			if r.iterations < 0 {
+			r.iterations--
+			if r.iterations == 0 {
 				return Result{
 					Type: Failure,
 				}
 			}
-			r.iterations--
+
 			return r.Run(result.DownStreamArgs)
 		}
 	}
@@ -170,11 +171,12 @@ func (r *Request) Run(args ...any) Result {
 	return result
 }
 
-func (r *Request) Test(testFunc func(respone *http.Response, args ...any) Result) *Request {
+func (r *Request) Test(testFunc func(response *http.Response, args ...any) Result) *Request {
 	r.testFunc = testFunc
 	return r
 }
 
+// TODO: Access to request?
 func (r *Request) CleanUp(cleanUpFunc func(Result) CleanUpResultType) *Request {
 	r.cleanUpFunc = cleanUpFunc
 	return r
