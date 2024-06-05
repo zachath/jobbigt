@@ -12,7 +12,7 @@ func TestBasicStatusCode(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	testResult := NewRequest(testServer.URL).
+	testResult := Get(testServer.URL).
 		Test(func(response *http.Response, args ...any) Result {
 			if response.StatusCode == http.StatusOK {
 				return Result{
@@ -38,7 +38,7 @@ func TestBasicCleanUp(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	testResult := NewRequest(testServer.URL).
+	testResult := Get(testServer.URL).
 		Test(func(response *http.Response, args ...any) Result {
 			if response.StatusCode == http.StatusOK {
 				return Result{
@@ -94,7 +94,7 @@ func TestIteration(t *testing.T) {
 			}
 		}))
 
-		result := NewRequest(testServer.URL).Iterations(tc.Iterations).Test(func(response *http.Response, args ...any) Result {
+		result := Get(testServer.URL).Iterations(tc.Iterations).Test(func(response *http.Response, args ...any) Result {
 			if response.StatusCode != http.StatusOK {
 				return Result{
 					Type: Repeat,

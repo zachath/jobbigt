@@ -76,7 +76,7 @@ type Request struct {
 	cleanUpFunc func(testResult Result) CleanUpResultType
 }
 
-func NewRequest(url string) *Request {
+func newRequest(url, method string) *Request {
 	return &Request{
 		id:         uuid.NewString(),
 		url:        url,
@@ -87,18 +87,16 @@ func NewRequest(url string) *Request {
 	}
 }
 
+func Get(url string) *Request {
+	return newRequest(url, http.MethodGet)
+}
+
+func Post(url string) *Request {
+	return newRequest(url, http.MethodPost)
+}
+
 func (r *Request) Id(id string) *Request {
 	r.id = id
-	return r
-}
-
-func (r *Request) Get() *Request {
-	r.method = http.MethodGet
-	return r
-}
-
-func (r *Request) Post() *Request {
-	r.method = http.MethodPost
 	return r
 }
 
