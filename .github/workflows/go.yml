@@ -21,5 +21,6 @@ jobs:
     - name: Archive
       uses: actions/upload-artifact@v4
       with:
-        name: code-coverage
-        path: go-coverage.html
+        name: ${{ github.sha }}.html
+        path: /home/runner/work/_temp/go-coverage.html
+        overwrite: true
