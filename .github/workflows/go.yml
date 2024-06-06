@@ -24,7 +24,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: code-coverage
-        path: cover.txt
+        path: coverage.txt
 
   code_coverage:
     name: "Code coverage report"
