@@ -31,7 +31,7 @@ func TestBasicStatusCode(t *testing.T) {
 	}
 }
 
-func TestBasicCleanUp(t *testing.T) {
+func TestBasicPostRequest(t *testing.T) {
 	var toggle bool
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		toggle = !toggle
@@ -49,12 +49,12 @@ func TestBasicCleanUp(t *testing.T) {
 				Type: Failure,
 			}
 		}).
-		CleanUp(func(r Result) CleanUpResultType {
+		PostRequest(func(r Result) PostRequestResultType {
 			response, err := http.Get(testServer.URL)
 			if err != nil || response.StatusCode != http.StatusOK {
-				return CleanUpFailure
+				return PostRequestFailure
 			}
-			return CleanUpSuccess
+			return PostRequestSuccess
 		}).
 		Run()
 
@@ -109,5 +109,23 @@ func TestIteration(t *testing.T) {
 		if (result.Type == Success && tc.ExpectedError) || (result.Type != Failure && tc.ExpectedError) {
 			t.Errorf("(%d) %v", id, result)
 		}
+	}
+}
+
+func TestUrlRequried(t *testing.T) {
+	request := Request{method: http.MethodGet}
+	result := request.Run()
+
+	if result.Type != Error || result.Description != "url is required" {
+		t.Errorf("expected error")
+	}
+}
+
+func TestMethodRequried(t *testing.T) {
+	request := Request{url: "url"}
+	result := request.Run()
+
+	if result.Type != Error || result.Description != "method is required" {
+		t.Errorf("expected error")
 	}
 }
