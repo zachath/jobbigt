@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+func isError(result *Result, expectedFailure bool) bool {
+	return (result.Type == Success && expectedFailure) || (result.Type != Success && !expectedFailure) || (result.Type != Failure && expectedFailure) || (result.Type == Failure && !expectedFailure)
+}
+
 func TestBasicStatusCode(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -72,16 +76,16 @@ func TestIteration(t *testing.T) {
 	requiredAttempts := 5
 
 	for id, tc := range []struct {
-		Iterations    int
-		ExpectedError bool
+		Iterations      int
+		ExpectedFailure bool
 	}{
 		{
-			Iterations:    requiredAttempts,
-			ExpectedError: false,
+			Iterations:      requiredAttempts,
+			ExpectedFailure: false,
 		},
 		{
-			Iterations:    requiredAttempts - 1,
-			ExpectedError: true,
+			Iterations:      requiredAttempts - 1,
+			ExpectedFailure: true,
 		},
 	} {
 		var attempts int
@@ -106,7 +110,7 @@ func TestIteration(t *testing.T) {
 			}
 		}).Run()
 
-		if (result.Type == Success && tc.ExpectedError) || (result.Type != Failure && tc.ExpectedError) {
+		if isError(result, tc.ExpectedFailure) {
 			t.Errorf("(%d) %v", id, result)
 		}
 	}
@@ -127,5 +131,83 @@ func TestMethodRequried(t *testing.T) {
 
 	if result.Type != Error || result.Description != "method is required" {
 		t.Errorf("expected error")
+	}
+}
+
+func TestStatusCodeAssertion(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for id, tc := range []struct {
+		Code            int
+		ExpectedFailure bool
+	}{
+		{
+			Code:            http.StatusOK,
+			ExpectedFailure: false,
+		},
+		{
+			Code:            http.StatusBadRequest,
+			ExpectedFailure: true,
+		},
+	} {
+		result := Get(testServer.URL).
+			Assert(StatusCode, tc.Code).
+			Run()
+
+		if isError(result, tc.ExpectedFailure) {
+			t.Errorf("(%d) %v", id, result)
+		}
+	}
+}
+
+func TestBodyAssertion(t *testing.T) {
+	for id, tc := range []struct {
+		Assertion       BodyAssertion
+		ExpectedFailure bool
+	}{
+		{
+			Assertion:       IsJson,
+			ExpectedFailure: false,
+		},
+		{
+			Assertion:       IsJson,
+			ExpectedFailure: true,
+		},
+		{
+			Assertion:       IsEmpty,
+			ExpectedFailure: false,
+		},
+		{
+			Assertion:       IsEmpty,
+			ExpectedFailure: true,
+		},
+	} {
+		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if tc.Assertion == IsJson {
+				if tc.ExpectedFailure {
+					w.Write([]byte(`Non json response`))
+				} else {
+					w.Write([]byte(`{"key": "value"}`))
+				}
+				return
+			} else if tc.Assertion == IsEmpty {
+				if tc.ExpectedFailure {
+					w.Write([]byte("Some non empty response"))
+				} else {
+					w.WriteHeader(http.StatusOK)
+				}
+				return
+			}
+		}))
+
+		result := Get(testServer.URL).
+			Assert(Body, tc.Assertion).
+			Run()
+
+		if isError(result, tc.ExpectedFailure) {
+			t.Errorf("(%d) %v", id, result)
+		}
 	}
 }
