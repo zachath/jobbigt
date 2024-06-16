@@ -44,23 +44,31 @@ func (r *Result) Error() string {
 	return ""
 }
 
-type AssertType int
+type AssertType string
 
 // TODO: More types
 const (
 	// Only accepts intergers as value, anything else will result in an Error.
-	StatusCode AssertType = iota
+	StatusCode AssertType = "STATUS_CODE"
 
-	// Only accepts BodyAssertion as value (or int value within said range), anything else will result in an Error.
-	Body
+	// Only accepts BodyAssertion as value, anything else will result in an Error.
+	Body AssertType = "BODY"
 )
 
-type BodyAssertion int
+type BodyAssertion string
 
 const (
-	IsJson BodyAssertion = iota
-	IsEmpty
+	IsJson  BodyAssertion = "IS_JSON"
+	IsEmpty BodyAssertion = "IS_EMPTY"
 )
+
+func isBodyAssertionvalue(v any) (BodyAssertion, bool) {
+	if ba, ok := v.(BodyAssertion); ok {
+		return ba, ok
+	}
+
+	return "", false
+}
 
 // TODO: The result on a request basis needs to be handled.
 type RequestGroup struct {
@@ -103,7 +111,7 @@ type Request struct {
 	preRequestFunc  func() //TODO
 	testFunc        func(respone *http.Response, args ...any) Result
 	postRequestFunc func(testResult Result) PostRequestResultType
-	assertions      []func(response *http.Response) ResultType
+	assertions      []func(response *http.Response) Result
 }
 
 func newRequest(url, method string) *Request {
@@ -208,13 +216,9 @@ func (r *Request) Run(args ...any) *Result {
 		}
 	}
 
-	// TODO: More information is needed here.
 	assert := r.checkAssertions(response)
-	if assert != Success {
-		return &Result{
-			Type:        assert,
-			Description: "failed assertion",
-		}
+	if assert.Type != Success {
+		return &assert
 	}
 
 	if r.testFunc != nil {
@@ -258,21 +262,32 @@ func (r *Request) PostRequest(postRequestFunc func(Result) PostRequestResultType
 	return r
 }
 
-// Define an assertion which acts as a simple test to ensure a certain value in the response is set correctly.
+// Defines an assertion which acts as a simple test to ensure a certain value in the response is set correctly.
 // These are run before the Test function if defined and run independently of it.
-// Any failing assertions will fail and abort the run.
+// Any failing assertions will fail the request.
 func (r *Request) Assert(asertType AssertType, value any) *Request {
-	r.assertions = append(r.assertions, func(response *http.Response) ResultType {
+	r.assertions = append(r.assertions, func(response *http.Response) Result {
 		switch asertType {
 		case StatusCode:
 			intValue, ok := value.(int)
-			if !ok || response.StatusCode != intValue {
-				return Failure
+			if !ok {
+				return Result{
+					Type:        Failure,
+					Description: fmt.Sprintf("failed to cast value '%v' to type int", value),
+				}
+			} else if response.StatusCode != intValue {
+				return Result{
+					Type:        Failure,
+					Description: fmt.Sprintf("received unexpected status code, exepcted %d but received %d", intValue, response.StatusCode),
+				}
 			}
 		case Body:
-			bodyAssertion, ok := value.(BodyAssertion)
+			bodyAssertion, ok := isBodyAssertionvalue(value)
 			if !ok {
-				return Failure
+				return Result{
+					Type:        Failure,
+					Description: fmt.Sprintf("%v is not a valid body assertion value", value),
+				}
 			}
 
 			// TODO: Move to own funcs.
@@ -280,38 +295,62 @@ func (r *Request) Assert(asertType AssertType, value any) *Request {
 			case IsJson:
 				body, err := io.ReadAll(response.Body)
 				if err != nil {
-					return Failure
+					return Result{
+						Type:        Failure,
+						Description: "failed to read to response body",
+					}
 				}
 
 				var js json.RawMessage
 				err = json.Unmarshal(body, &js)
 				if err != nil {
-					return Failure
+					return Result{
+						Type:        Failure,
+						Description: fmt.Sprintf("failed to unmarshal the response body: '%s'", body),
+					}
 				}
 			case IsEmpty:
 				b, err := io.ReadAll(response.Body)
-				if err != nil || len(b) != 0 {
-					return Failure
+				if err != nil {
+					return Result{
+						Type:        Failure, // TODO: Should these instead be Error?
+						Description: "failed to read the response body",
+					}
+				} else if len(b) != 0 {
+					return Result{
+						Type:        Failure,
+						Description: fmt.Sprintf("received non empty body, body had length of: %d", len(b)),
+					}
 				}
 			default:
-				return Error
+				return Result{
+					Type:        Error,
+					Description: fmt.Sprintf("'%s' is not a valid body assertion", bodyAssertion),
+				}
 			}
 		default:
-			return Error
+			return Result{
+				Type:        Error,
+				Description: fmt.Sprintf("'%s' is not a valid assert type", asertType),
+			}
 		}
 
-		return Success
+		return Result{
+			Type: Success,
+		}
 	})
 
 	return r
 }
 
-func (r *Request) checkAssertions(response *http.Response) ResultType {
+func (r *Request) checkAssertions(response *http.Response) Result {
 	for _, assertion := range r.assertions {
 		result := assertion(response)
-		if result != Success {
+		if result.Type != Success {
 			return result
 		}
 	}
-	return Success
+	return Result{
+		Type: Success,
+	}
 }

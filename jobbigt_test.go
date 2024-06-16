@@ -7,8 +7,11 @@ import (
 	"testing"
 )
 
-func isError(result *Result, expectedFailure bool) bool {
-	return (result.Type == Success && expectedFailure) || (result.Type != Success && !expectedFailure) || (result.Type != Failure && expectedFailure) || (result.Type == Failure && !expectedFailure)
+func isFailure(result *Result, expectedFailure bool) bool {
+	return (result.Type == Success && expectedFailure) ||
+		(result.Type != Success && !expectedFailure) ||
+		(result.Type != Failure && expectedFailure) ||
+		(result.Type == Failure && !expectedFailure)
 }
 
 func TestBasicStatusCode(t *testing.T) {
@@ -110,8 +113,8 @@ func TestIteration(t *testing.T) {
 			}
 		}).Run()
 
-		if isError(result, tc.ExpectedFailure) {
-			t.Errorf("(%d) %v", id, result)
+		if isFailure(result, tc.ExpectedFailure) {
+			t.Errorf("(%d) %v", id, *result)
 		}
 	}
 }
@@ -140,7 +143,7 @@ func TestStatusCodeAssertion(t *testing.T) {
 	}))
 
 	for id, tc := range []struct {
-		Code            int
+		Code            any
 		ExpectedFailure bool
 	}{
 		{
@@ -151,13 +154,17 @@ func TestStatusCodeAssertion(t *testing.T) {
 			Code:            http.StatusBadRequest,
 			ExpectedFailure: true,
 		},
+		{
+			Code:            "Not a valid value",
+			ExpectedFailure: true,
+		},
 	} {
 		result := Get(testServer.URL).
 			Assert(StatusCode, tc.Code).
 			Run()
 
-		if isError(result, tc.ExpectedFailure) {
-			t.Errorf("(%d) %v", id, result)
+		if isFailure(result, tc.ExpectedFailure) {
+			t.Errorf("(%d) %v", id, *result)
 		}
 	}
 }
@@ -166,6 +173,7 @@ func TestBodyAssertion(t *testing.T) {
 	for id, tc := range []struct {
 		Assertion       BodyAssertion
 		ExpectedFailure bool
+		ExpectedError   bool
 	}{
 		{
 			Assertion:       IsJson,
@@ -182,6 +190,10 @@ func TestBodyAssertion(t *testing.T) {
 		{
 			Assertion:       IsEmpty,
 			ExpectedFailure: true,
+		},
+		{
+			Assertion:     "Not a valid value",
+			ExpectedError: true,
 		},
 	} {
 		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -206,8 +218,22 @@ func TestBodyAssertion(t *testing.T) {
 			Assert(Body, tc.Assertion).
 			Run()
 
-		if isError(result, tc.ExpectedFailure) {
-			t.Errorf("(%d) %v", id, result)
+		if isFailure(result, tc.ExpectedFailure) && !(result.Type == Error && tc.ExpectedError) {
+			t.Errorf("(%d) %v", id, *result)
 		}
+	}
+}
+
+func TestInvalidAssertType(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	result := Get(testServer.URL).
+		Assert("some invalid value", "some value").
+		Run()
+
+	if result.Type != Error {
+		t.Errorf("%v", *result)
 	}
 }
