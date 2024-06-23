@@ -44,32 +44,6 @@ func (r *Result) Error() string {
 	return ""
 }
 
-type AssertType string
-
-// TODO: More types
-const (
-	// Only accepts intergers as value, anything else will result in an Error.
-	StatusCode AssertType = "STATUS_CODE"
-
-	// Only accepts BodyAssertion as value, anything else will result in an Error.
-	Body AssertType = "BODY"
-)
-
-type BodyAssertion string
-
-const (
-	IsJson  BodyAssertion = "IS_JSON"
-	IsEmpty BodyAssertion = "IS_EMPTY"
-)
-
-func isBodyAssertionvalue(v any) (BodyAssertion, bool) {
-	if ba, ok := v.(BodyAssertion); ok {
-		return ba, ok
-	}
-
-	return "", false
-}
-
 // TODO: The result on a request basis needs to be handled.
 type RequestGroup struct {
 	id       string
@@ -108,6 +82,7 @@ type Request struct {
 	body            []byte
 	timeout         int
 	iterations      int
+	responseBody    []byte
 	preRequestFunc  func() //TODO
 	testFunc        func(respone *http.Response, args ...any) Result
 	postRequestFunc func(testResult Result) PostRequestResultType
@@ -179,6 +154,17 @@ func (r *Request) perform() (*http.Response, error) {
 	return c.Do(request)
 }
 
+func (r *Request) readBody(response *http.Response) error {
+	b, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+
+	r.responseBody = b
+
+	return nil
+}
+
 // Performs the request, any pre-request/post-request functions, the test and assertions.
 func (r *Request) Run(args ...any) *Result {
 	if r.url == "" {
@@ -198,6 +184,14 @@ func (r *Request) Run(args ...any) *Result {
 	}
 
 	response, err := r.perform()
+	if err != nil {
+		return &Result{
+			Type:        Error,
+			Description: err.Error(),
+		}
+	}
+
+	err = r.readBody(response)
 	if err != nil {
 		return &Result{
 			Type:        Error,
@@ -262,76 +256,12 @@ func (r *Request) PostRequest(postRequestFunc func(Result) PostRequestResultType
 	return r
 }
 
-// Defines an assertion which acts as a simple test to ensure a certain value in the response is set correctly.
-// These are run before the Test function if defined and run independently of it.
-// Any failing assertions will fail the request.
-func (r *Request) Assert(asertType AssertType, value any) *Request {
+func (r *Request) StatusCode(expectedStatusCode int) *Request {
 	r.assertions = append(r.assertions, func(response *http.Response) Result {
-		switch asertType {
-		case StatusCode:
-			intValue, ok := value.(int)
-			if !ok {
-				return Result{
-					Type:        Failure,
-					Description: fmt.Sprintf("failed to cast value '%v' to type int", value),
-				}
-			} else if response.StatusCode != intValue {
-				return Result{
-					Type:        Failure,
-					Description: fmt.Sprintf("received unexpected status code, exepcted %d but received %d", intValue, response.StatusCode),
-				}
-			}
-		case Body:
-			bodyAssertion, ok := isBodyAssertionvalue(value)
-			if !ok {
-				return Result{
-					Type:        Failure,
-					Description: fmt.Sprintf("%v is not a valid body assertion value", value),
-				}
-			}
-
-			// TODO: Move to own funcs.
-			switch bodyAssertion {
-			case IsJson:
-				body, err := io.ReadAll(response.Body)
-				if err != nil {
-					return Result{
-						Type:        Failure,
-						Description: "failed to read to response body",
-					}
-				}
-
-				var js json.RawMessage
-				err = json.Unmarshal(body, &js)
-				if err != nil {
-					return Result{
-						Type:        Failure,
-						Description: fmt.Sprintf("failed to unmarshal the response body: '%s'", body),
-					}
-				}
-			case IsEmpty:
-				b, err := io.ReadAll(response.Body)
-				if err != nil {
-					return Result{
-						Type:        Failure, // TODO: Should these instead be Error?
-						Description: "failed to read the response body",
-					}
-				} else if len(b) != 0 {
-					return Result{
-						Type:        Failure,
-						Description: fmt.Sprintf("received non empty body, body had length of: %d", len(b)),
-					}
-				}
-			default:
-				return Result{
-					Type:        Error,
-					Description: fmt.Sprintf("'%s' is not a valid body assertion", bodyAssertion),
-				}
-			}
-		default:
+		if response.StatusCode != expectedStatusCode {
 			return Result{
-				Type:        Error,
-				Description: fmt.Sprintf("'%s' is not a valid assert type", asertType),
+				Type:        Failure,
+				Description: fmt.Sprintf("received unexpected status code, exepcted %d but received %d", expectedStatusCode, response.StatusCode),
 			}
 		}
 
@@ -339,7 +269,54 @@ func (r *Request) Assert(asertType AssertType, value any) *Request {
 			Type: Success,
 		}
 	})
+	return r
+}
 
+func (r *Request) BodyIsEmpty() *Request {
+	r.assertions = append(r.assertions, func(response *http.Response) Result {
+		if r.responseBody == nil {
+			return Result{
+				Type:        Failure,
+				Description: "received nil response",
+			}
+		}
+
+		if len(r.responseBody) != 0 {
+			return Result{
+				Type:        Failure,
+				Description: fmt.Sprintf("received non empty body, body had length of: %d", len(r.responseBody)),
+			}
+		}
+
+		return Result{
+			Type: Success,
+		}
+	})
+	return r
+}
+
+func (r *Request) BodyIsJson() *Request {
+	r.assertions = append(r.assertions, func(response *http.Response) Result {
+		if r.responseBody == nil {
+			return Result{
+				Type:        Failure,
+				Description: "received nil response",
+			}
+		}
+
+		var js json.RawMessage
+		err := json.Unmarshal(r.responseBody, &js)
+		if err != nil {
+			return Result{
+				Type:        Failure,
+				Description: fmt.Sprintf("failed to unmarshal the response body: '%s'", r.responseBody),
+			}
+		}
+
+		return Result{
+			Type: Success,
+		}
+	})
 	return r
 }
 

@@ -143,7 +143,7 @@ func TestStatusCodeAssertion(t *testing.T) {
 	}))
 
 	for id, tc := range []struct {
-		Code            any
+		Code            int
 		ExpectedFailure bool
 	}{
 		{
@@ -154,13 +154,9 @@ func TestStatusCodeAssertion(t *testing.T) {
 			Code:            http.StatusBadRequest,
 			ExpectedFailure: true,
 		},
-		{
-			Code:            "Not a valid value",
-			ExpectedFailure: true,
-		},
 	} {
 		result := Get(testServer.URL).
-			Assert(StatusCode, tc.Code).
+			StatusCode(tc.Code).
 			Run()
 
 		if isFailure(result, tc.ExpectedFailure) {
@@ -169,71 +165,60 @@ func TestStatusCodeAssertion(t *testing.T) {
 	}
 }
 
-func TestBodyAssertion(t *testing.T) {
+func TestBodyIsEmptyAssertion(t *testing.T) {
 	for id, tc := range []struct {
-		Assertion       BodyAssertion
 		ExpectedFailure bool
-		ExpectedError   bool
 	}{
 		{
-			Assertion:       IsJson,
 			ExpectedFailure: false,
 		},
 		{
-			Assertion:       IsJson,
 			ExpectedFailure: true,
-		},
-		{
-			Assertion:       IsEmpty,
-			ExpectedFailure: false,
-		},
-		{
-			Assertion:       IsEmpty,
-			ExpectedFailure: true,
-		},
-		{
-			Assertion:     "Not a valid value",
-			ExpectedError: true,
 		},
 	} {
 		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if tc.Assertion == IsJson {
-				if tc.ExpectedFailure {
-					w.Write([]byte(`Non json response`))
-				} else {
-					w.Write([]byte(`{"key": "value"}`))
-				}
-				return
-			} else if tc.Assertion == IsEmpty {
-				if tc.ExpectedFailure {
-					w.Write([]byte("Some non empty response"))
-				} else {
-					w.WriteHeader(http.StatusOK)
-				}
-				return
+			if tc.ExpectedFailure {
+				w.Write([]byte("Some non empty response"))
+			} else {
+				w.WriteHeader(http.StatusOK)
 			}
 		}))
 
 		result := Get(testServer.URL).
-			Assert(Body, tc.Assertion).
+			BodyIsEmpty().
 			Run()
 
-		if isFailure(result, tc.ExpectedFailure) && !(result.Type == Error && tc.ExpectedError) {
+		if isFailure(result, tc.ExpectedFailure) {
 			t.Errorf("(%d) %v", id, *result)
 		}
 	}
 }
 
-func TestInvalidAssertType(t *testing.T) {
-	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+func TestBodyIsJsonAssertion(t *testing.T) {
+	for id, tc := range []struct {
+		ExpectedFailure bool
+	}{
+		{
+			ExpectedFailure: false,
+		},
+		{
+			ExpectedFailure: true,
+		},
+	} {
+		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if tc.ExpectedFailure {
+				w.Write([]byte(`Non json response`))
+			} else {
+				w.Write([]byte(`{"key": "value"}`))
+			}
+		}))
 
-	result := Get(testServer.URL).
-		Assert("some invalid value", "some value").
-		Run()
+		result := Get(testServer.URL).
+			BodyIsJson().
+			Run()
 
-	if result.Type != Error {
-		t.Errorf("%v", *result)
+		if isFailure(result, tc.ExpectedFailure) {
+			t.Errorf("(%d) %v", id, *result)
+		}
 	}
 }
