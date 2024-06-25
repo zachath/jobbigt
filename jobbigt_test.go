@@ -243,3 +243,19 @@ func TestHeader(t *testing.T) {
 		Header(headerKey, headerValue).
 		Run()
 }
+
+func TestBasicAuth(t *testing.T) {
+	username := "user"
+	password := "password"
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != username || p != password {
+			t.Errorf("did not recive expected basic auth: %s, %s, %t", u, p, ok)
+		}
+	}))
+
+	Get(testServer.URL).
+		BasicAuth(username, password).
+		Run()
+}

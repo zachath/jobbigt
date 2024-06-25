@@ -2,6 +2,7 @@ package jobbigt
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,6 +129,11 @@ func (r *Request) Body(body []byte) *Request {
 // Set request header key value pair.
 func (r *Request) Header(key, value string) *Request {
 	r.headers.Add(key, value)
+	return r
+}
+
+func (r *Request) BasicAuth(username, password string) *Request {
+	r.headers.Add("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, password)))))
 	return r
 }
 
