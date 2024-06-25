@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -221,4 +222,24 @@ func TestBodyIsJsonAssertion(t *testing.T) {
 			t.Errorf("(%d) %v", id, *result)
 		}
 	}
+}
+
+func TestHeader(t *testing.T) {
+	headerKey := "Key"
+	headerValue := "value"
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arr, ok := r.Header[headerKey]
+		if !ok {
+			t.Error("did not received header key in request")
+		}
+
+		if !slices.Contains(arr, headerValue) {
+			t.Error("did not received header value in request")
+		}
+	}))
+
+	Get(testServer.URL).
+		Header(headerKey, headerValue).
+		Run()
 }

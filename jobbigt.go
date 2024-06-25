@@ -80,6 +80,8 @@ type Request struct {
 	url             string
 	method          string
 	body            []byte
+	headers         http.Header
+	sleep           time.Duration
 	timeout         int
 	iterations      int
 	responseBody    []byte
@@ -95,6 +97,7 @@ func newRequest(url, method string) *Request {
 		url:        url,
 		method:     method,
 		body:       nil,
+		headers:    http.Header{},
 		timeout:    100,
 		iterations: 1,
 	}
@@ -122,6 +125,19 @@ func (r *Request) Body(body []byte) *Request {
 	return r
 }
 
+// Set request header key value pair.
+func (r *Request) Header(key, value string) *Request {
+	r.headers.Add(key, value)
+	return r
+}
+
+// Set the duration to sleep between iterations.
+// Default no sleep.
+func (r *Request) Sleep(sleep time.Duration) *Request {
+	r.sleep = sleep
+	return r
+}
+
 // Set request timeout. A request timing out will result in a result with the type Error.
 func (r *Request) Timeout(timeout int) *Request {
 	r.timeout = timeout
@@ -130,9 +146,11 @@ func (r *Request) Timeout(timeout int) *Request {
 
 // Set request iterations, determines how many times the test is to be re-run if previous iteration exited with the result type of Reapeat.
 // If exceeded the result type will be Error.
-// Default 1
+// Any value below 1 will be ignored and set to the default value of 1
 func (r *Request) Iterations(iterations int) *Request {
-	r.iterations = iterations
+	if iterations >= 1 {
+		r.iterations = iterations
+	}
 	return r
 }
 
@@ -146,6 +164,7 @@ func (r *Request) perform() (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	request.Header = r.headers
 
 	c := &http.Client{
 		Timeout: time.Duration(r.timeout) * time.Second,
@@ -226,6 +245,8 @@ func (r *Request) Run(args ...any) *Result {
 				}
 			}
 
+			time.Sleep(r.sleep)
+
 			return r.Run(result.DownStreamArgs)
 		}
 	}
@@ -256,6 +277,7 @@ func (r *Request) PostRequest(postRequestFunc func(Result) PostRequestResultType
 	return r
 }
 
+// Assert that the status code of the response is of a certain value. A mismatch in recived and expected results in a 'Failure'.
 func (r *Request) StatusCode(expectedStatusCode int) *Request {
 	r.assertions = append(r.assertions, func(response *http.Response) Result {
 		if response.StatusCode != expectedStatusCode {
@@ -272,6 +294,7 @@ func (r *Request) StatusCode(expectedStatusCode int) *Request {
 	return r
 }
 
+// Assert that the response body is empty. A non empty response body results in a 'Failure'.
 func (r *Request) BodyIsEmpty() *Request {
 	r.assertions = append(r.assertions, func(response *http.Response) Result {
 		if r.responseBody == nil {
@@ -295,6 +318,7 @@ func (r *Request) BodyIsEmpty() *Request {
 	return r
 }
 
+// Assert that the response body is json. A non json response body results in a 'Failure'.
 func (r *Request) BodyIsJson() *Request {
 	r.assertions = append(r.assertions, func(response *http.Response) Result {
 		if r.responseBody == nil {
