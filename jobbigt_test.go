@@ -1,7 +1,6 @@
 package jobbigt
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -35,44 +34,131 @@ func TestBasicStatusCode(t *testing.T) {
 
 	if testResult.Type != Success {
 		t.Errorf("received unexpected result type, expected '%d', got '%d'", Success, testResult.Type)
-		fmt.Println(testResult.Error())
 	}
 }
 
-func TestBasicPostRequest(t *testing.T) {
-	var toggle bool
-	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		toggle = !toggle
-		w.WriteHeader(http.StatusOK)
-	}))
+func TestPreRequestFunc(t *testing.T) {
+	for _, tc := range []struct {
+		ExpectedFailure bool
+	}{
+		{
+			ExpectedFailure: false,
+		},
+		{
+			ExpectedFailure: true,
+		},
+	} {
+		var toggle bool
+		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			toggle = !toggle
+			w.WriteHeader(http.StatusOK)
+		}))
 
-	testResult := Get(testServer.URL).
-		Test(func(response *http.Response, args ...any) Result {
-			if response.StatusCode == http.StatusOK {
+		r := Get(testServer.URL).
+			PreRequest(func() *Result {
+				if tc.ExpectedFailure {
+					return &Result{
+						Type:        Failure,
+						Description: "[ERROR]",
+					}
+				}
+
+				_, err := http.Get(testServer.URL)
+				if err != nil {
+					return &Result{
+						Type: Failure,
+					}
+				}
+
+				return &Result{
+					Type: Success,
+				}
+			}).
+			Test(func(response *http.Response, args ...any) Result {
+				if tc.ExpectedFailure {
+					t.Fatal("Test fucntion ran even after pre request function failed")
+				}
 				return Result{
 					Type: Success,
 				}
-			}
-			return Result{
-				Type: Failure,
-			}
-		}).
-		PostRequest(func(r Result) PostRequestResultType {
-			response, err := http.Get(testServer.URL)
-			if err != nil || response.StatusCode != http.StatusOK {
-				return PostRequestFailure
-			}
-			return PostRequestSuccess
-		}).
-		Run()
+			}).
+			Run()
 
-	if testResult.Type != Success {
-		t.Errorf("received unexpected result type, expected '%d', got '%d'", Success, testResult.Type)
-		fmt.Println(testResult.Error())
+		if toggle {
+			t.Error("expected toggle to be false")
+		}
+
+		if tc.ExpectedFailure {
+			if r.Description != "received non successful result from pre request func: [ERROR]" {
+				t.Errorf("received unexpected result description: '%s'", r.Description)
+			}
+		}
 	}
+}
 
-	if toggle {
-		t.Error("expected toggle to be false")
+func TestPostRequestFunc(t *testing.T) {
+
+	for _, tc := range []struct {
+		ExpectedFailure bool
+	}{
+		{
+			ExpectedFailure: false,
+		},
+		{
+			ExpectedFailure: true,
+		},
+	} {
+		var toggle bool
+		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			toggle = !toggle
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		r := Get(testServer.URL).
+			Test(func(response *http.Response, args ...any) Result {
+				return Result{
+					Type:        Success,
+					Description: "The Test Result",
+				}
+			}).
+			PostRequest(func(r *Result) *Result {
+				if r.Type != Success || r.Description != "The Test Result" {
+					t.Fatal("result provided is not the test result")
+				}
+
+				if tc.ExpectedFailure {
+					return &Result{
+						Type:        Failure,
+						Description: "[ERROR]",
+					}
+				}
+
+				_, err := http.Get(testServer.URL)
+				if err != nil {
+					return &Result{
+						Type: Failure,
+					}
+				}
+
+				return &Result{
+					Type: Success,
+				}
+			}).
+			Run()
+
+		if tc.ExpectedFailure {
+			if !toggle {
+				t.Error("expected toggle to be true")
+			}
+
+			if r.Description != "received non successful result from post request func: [ERROR]" {
+				t.Errorf("received unexpected result description: '%s'", r.Description)
+			}
+		} else {
+			if toggle {
+				t.Error("expected toggle to be false")
+			}
+		}
 	}
 }
 

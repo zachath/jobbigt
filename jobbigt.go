@@ -25,13 +25,6 @@ const (
 	NoTest
 )
 
-type PostRequestResultType int
-
-const (
-	PostRequestSuccess PostRequestResultType = iota
-	PostRequestFailure
-)
-
 type Result struct {
 	Type           ResultType
 	Description    string
@@ -43,6 +36,13 @@ func (r *Result) Error() string {
 		return r.Description
 	}
 	return ""
+}
+
+func AnnotateResult(r *Result, desc string) *Result {
+	return &Result{
+		Type:        r.Type,
+		Description: fmt.Sprintf("%s: %s", desc, r.Description),
+	}
 }
 
 // TODO: The result on a request basis needs to be handled.
@@ -86,10 +86,10 @@ type Request struct {
 	timeout         int
 	iterations      int
 	responseBody    []byte
-	preRequestFunc  func() //TODO
+	preRequestFunc  func() *Result
 	testFunc        func(respone *http.Response, args ...any) Result
-	postRequestFunc func(testResult Result) PostRequestResultType
-	assertions      []func(response *http.Response) Result
+	postRequestFunc func(testResult *Result) *Result
+	assertions      []func(response *http.Response) *Result
 }
 
 func newRequest(url, method string) *Request {
@@ -132,6 +132,9 @@ func (r *Request) Header(key, value string) *Request {
 	return r
 }
 
+// TODO: More types of authorization headers.
+
+// Set basic auth header.
 func (r *Request) BasicAuth(username, password string) *Request {
 	r.headers.Add("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, password)))))
 	return r
@@ -205,14 +208,17 @@ func (r *Request) Run(args ...any) *Result {
 	}
 
 	if r.preRequestFunc != nil {
-		r.preRequestFunc()
+		preRequestResult := r.preRequestFunc()
+		if preRequestResult.Type != Success {
+			return AnnotateResult(preRequestResult, "received non successful result from pre request func")
+		}
 	}
 
 	response, err := r.perform()
 	if err != nil {
 		return &Result{
 			Type:        Error,
-			Description: err.Error(),
+			Description: fmt.Sprintf("received an error while performing request: %s", err.Error()),
 		}
 	}
 
@@ -220,7 +226,7 @@ func (r *Request) Run(args ...any) *Result {
 	if err != nil {
 		return &Result{
 			Type:        Error,
-			Description: err.Error(),
+			Description: fmt.Sprintf("received an error while reading body: %s", err.Error()),
 		}
 	}
 
@@ -235,9 +241,9 @@ func (r *Request) Run(args ...any) *Result {
 		}
 	}
 
-	assert := r.checkAssertions(response)
-	if assert.Type != Success {
-		return &assert
+	assertResult := r.checkAssertions(response)
+	if assertResult.Type != Success {
+		return AnnotateResult(assertResult, "assertion failed")
 	}
 
 	if r.testFunc != nil {
@@ -258,7 +264,10 @@ func (r *Request) Run(args ...any) *Result {
 	}
 
 	if r.postRequestFunc != nil {
-		r.postRequestFunc(result) //TODO: Handle post up result
+		postRequestResult := r.postRequestFunc(&result)
+		if postRequestResult.Type != Success {
+			return AnnotateResult(postRequestResult, "received non successful result from post request func")
+		}
 	}
 
 	return &result
@@ -270,30 +279,29 @@ func (r *Request) Test(testFunc func(response *http.Response, args ...any) Resul
 	return r
 }
 
-// Set the pre-request function
-func (r *Request) PreRequest(preRequestFunc func()) *Request {
+// Set the pre-request function.
+func (r *Request) PreRequest(preRequestFunc func() *Result) *Request {
 	r.preRequestFunc = preRequestFunc
 	return r
 }
 
-// TODO: Access to request?
-// Set the post-request function
-func (r *Request) PostRequest(postRequestFunc func(Result) PostRequestResultType) *Request {
+// Set the post-request function which is only run when the request (and subsequent iterations) are complete.
+func (r *Request) PostRequest(postRequestFunc func(*Result) *Result) *Request {
 	r.postRequestFunc = postRequestFunc
 	return r
 }
 
 // Assert that the status code of the response is of a certain value. A mismatch in recived and expected results in a 'Failure'.
 func (r *Request) StatusCode(expectedStatusCode int) *Request {
-	r.assertions = append(r.assertions, func(response *http.Response) Result {
+	r.assertions = append(r.assertions, func(response *http.Response) *Result {
 		if response.StatusCode != expectedStatusCode {
-			return Result{
+			return &Result{
 				Type:        Failure,
 				Description: fmt.Sprintf("received unexpected status code, exepcted %d but received %d", expectedStatusCode, response.StatusCode),
 			}
 		}
 
-		return Result{
+		return &Result{
 			Type: Success,
 		}
 	})
@@ -302,22 +310,22 @@ func (r *Request) StatusCode(expectedStatusCode int) *Request {
 
 // Assert that the response body is empty. A non empty response body results in a 'Failure'.
 func (r *Request) BodyIsEmpty() *Request {
-	r.assertions = append(r.assertions, func(response *http.Response) Result {
+	r.assertions = append(r.assertions, func(response *http.Response) *Result {
 		if r.responseBody == nil {
-			return Result{
+			return &Result{
 				Type:        Failure,
 				Description: "received nil response",
 			}
 		}
 
 		if len(r.responseBody) != 0 {
-			return Result{
+			return &Result{
 				Type:        Failure,
 				Description: fmt.Sprintf("received non empty body, body had length of: %d", len(r.responseBody)),
 			}
 		}
 
-		return Result{
+		return &Result{
 			Type: Success,
 		}
 	})
@@ -326,9 +334,9 @@ func (r *Request) BodyIsEmpty() *Request {
 
 // Assert that the response body is json. A non json response body results in a 'Failure'.
 func (r *Request) BodyIsJson() *Request {
-	r.assertions = append(r.assertions, func(response *http.Response) Result {
+	r.assertions = append(r.assertions, func(response *http.Response) *Result {
 		if r.responseBody == nil {
-			return Result{
+			return &Result{
 				Type:        Failure,
 				Description: "received nil response",
 			}
@@ -337,27 +345,27 @@ func (r *Request) BodyIsJson() *Request {
 		var js json.RawMessage
 		err := json.Unmarshal(r.responseBody, &js)
 		if err != nil {
-			return Result{
+			return &Result{
 				Type:        Failure,
 				Description: fmt.Sprintf("failed to unmarshal the response body: '%s'", r.responseBody),
 			}
 		}
 
-		return Result{
+		return &Result{
 			Type: Success,
 		}
 	})
 	return r
 }
 
-func (r *Request) checkAssertions(response *http.Response) Result {
+func (r *Request) checkAssertions(response *http.Response) *Result {
 	for _, assertion := range r.assertions {
 		result := assertion(response)
 		if result.Type != Success {
 			return result
 		}
 	}
-	return Result{
+	return &Result{
 		Type: Success,
 	}
 }
